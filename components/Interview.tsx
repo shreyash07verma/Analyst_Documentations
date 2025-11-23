@@ -1,16 +1,27 @@
+
 import React, { useState } from 'react';
 import { Question, Answer } from '../types';
 import { ArrowRight, ArrowLeft, CheckCircle2, Loader2, AlertCircle } from 'lucide-react';
 
 interface InterviewProps {
     questions: Question[];
+    initialAnswers?: Answer[];
     onComplete: (answers: Answer[]) => void;
     onBack: () => void;
     isGenerating: boolean;
 }
 
-const Interview: React.FC<InterviewProps> = ({ questions, onComplete, onBack, isGenerating }) => {
-    const [answers, setAnswers] = useState<Record<number, string>>({});
+const Interview: React.FC<InterviewProps> = ({ questions, initialAnswers, onComplete, onBack, isGenerating }) => {
+    // Initialize answers state from initialAnswers prop if available
+    const [answers, setAnswers] = useState<Record<number, string>>(() => {
+        if (!initialAnswers) return {};
+        const initialMap: Record<number, string> = {};
+        initialAnswers.forEach(a => {
+            initialMap[a.questionId] = a.text;
+        });
+        return initialMap;
+    });
+    
     const [currentStep, setCurrentStep] = useState(0);
 
     const progress = Math.round(((Object.keys(answers).length) / questions.length) * 100);
@@ -18,7 +29,6 @@ const Interview: React.FC<InterviewProps> = ({ questions, onComplete, onBack, is
     const currentAnswerText = answers[currentQuestion.id] || '';
     const isCurrentAnswered = currentAnswerText.trim().length > 0;
     
-    // Validation logic: User can only proceed if it's NOT required, or if it IS required and has an answer.
     const canProceed = !currentQuestion.required || isCurrentAnswered;
 
     const handleAnswerChange = (text: string) => {
@@ -58,14 +68,14 @@ const Interview: React.FC<InterviewProps> = ({ questions, onComplete, onBack, is
     if (isGenerating) {
         return (
             <div className="flex flex-col items-center justify-center h-[60vh] animate-in fade-in duration-500">
-                <div className="bg-white p-8 rounded-3xl shadow-xl border border-slate-100 text-center max-w-md w-full">
+                <div className="bg-slate-800 p-8 rounded-3xl shadow-xl border border-slate-700 text-center max-w-md w-full">
                     <div className="relative w-20 h-20 mx-auto mb-6">
-                        <div className="absolute inset-0 rounded-full border-4 border-slate-100"></div>
+                        <div className="absolute inset-0 rounded-full border-4 border-slate-700"></div>
                         <div className="absolute inset-0 rounded-full border-4 border-primary border-t-transparent animate-spin"></div>
                         <Loader2 className="absolute inset-0 m-auto text-primary w-8 h-8 animate-pulse" />
                     </div>
-                    <h2 className="text-2xl font-bold text-slate-800 mb-2">Drafting Document</h2>
-                    <p className="text-slate-500">Our AI is synthesizing your answers into a structured document...</p>
+                    <h2 className="text-2xl font-bold text-white mb-2">Analysing & Drafting</h2>
+                    <p className="text-slate-400">Consulting external sources, verifying data, and synthesizing your document...</p>
                 </div>
             </div>
         );
@@ -75,11 +85,11 @@ const Interview: React.FC<InterviewProps> = ({ questions, onComplete, onBack, is
         <div className="max-w-3xl mx-auto px-4 py-12 w-full">
             {/* Progress Bar */}
             <div className="mb-8">
-                <div className="flex justify-between text-sm font-medium text-slate-500 mb-2">
+                <div className="flex justify-between text-sm font-medium text-slate-400 mb-2">
                     <span>Question {currentStep + 1} of {questions.length}</span>
                     <span>{progress}% Completed</span>
                 </div>
-                <div className="h-2 bg-slate-200 rounded-full overflow-hidden">
+                <div className="h-2 bg-slate-800 rounded-full overflow-hidden border border-slate-700">
                     <div 
                         className="h-full bg-primary transition-all duration-500 ease-out"
                         style={{ width: `${((currentStep) / questions.length) * 100}%` }}
@@ -88,21 +98,21 @@ const Interview: React.FC<InterviewProps> = ({ questions, onComplete, onBack, is
             </div>
 
             {/* Question Card */}
-            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-8 min-h-[400px] flex flex-col relative overflow-hidden">
+            <div className="bg-[#1e293b] rounded-2xl shadow-xl border border-slate-700 p-8 min-h-[400px] flex flex-col relative overflow-hidden">
                 <div className="flex justify-between items-start mb-6 gap-4">
-                    <h2 className="text-2xl font-semibold text-slate-900 leading-relaxed">
+                    <h2 className="text-2xl font-semibold text-white leading-relaxed">
                         {currentQuestion.text}
                         {currentQuestion.required && (
                             <span className="ml-2 text-red-500 text-sm align-top font-bold" title="Required">*</span>
                         )}
                     </h2>
                     {currentQuestion.required && (
-                        <div className="shrink-0 px-3 py-1 bg-red-50 text-red-600 text-xs font-bold uppercase tracking-wider rounded-full border border-red-100">
+                        <div className="shrink-0 px-3 py-1 bg-red-900/30 text-red-400 text-xs font-bold uppercase tracking-wider rounded-full border border-red-900/50">
                             Required
                         </div>
                     )}
                     {!currentQuestion.required && (
-                        <div className="shrink-0 px-3 py-1 bg-slate-50 text-slate-500 text-xs font-bold uppercase tracking-wider rounded-full border border-slate-100">
+                        <div className="shrink-0 px-3 py-1 bg-slate-800 text-slate-400 text-xs font-bold uppercase tracking-wider rounded-full border border-slate-700">
                             Optional
                         </div>
                     )}
@@ -110,8 +120,8 @@ const Interview: React.FC<InterviewProps> = ({ questions, onComplete, onBack, is
 
                 <textarea
                     className={`
-                        flex-grow w-full p-4 bg-slate-50 border rounded-xl focus:ring-2 focus:ring-primary/20 transition-all resize-none text-slate-700 placeholder:text-slate-400 text-lg
-                        ${currentQuestion.required && !isCurrentAnswered ? 'border-slate-200 focus:border-primary' : 'border-slate-200 focus:border-primary'}
+                        flex-grow w-full p-4 bg-[#0f172a] border rounded-xl focus:ring-2 focus:ring-primary/40 transition-all resize-none text-slate-200 placeholder:text-slate-600 text-lg
+                        ${currentQuestion.required && !isCurrentAnswered ? 'border-slate-700 focus:border-primary' : 'border-slate-700 focus:border-primary'}
                     `}
                     placeholder={currentQuestion.placeholder || "Type your detailed answer here..."}
                     value={answers[currentQuestion.id] || ''}
@@ -120,7 +130,7 @@ const Interview: React.FC<InterviewProps> = ({ questions, onComplete, onBack, is
                 />
 
                 {currentQuestion.required && !isCurrentAnswered && (
-                    <div className="mt-2 flex items-center gap-2 text-amber-600 text-sm animate-pulse">
+                    <div className="mt-2 flex items-center gap-2 text-amber-500 text-sm animate-pulse">
                         <AlertCircle className="w-4 h-4" />
                         <span>This question is mandatory. Please provide an answer to proceed.</span>
                     </div>
@@ -129,18 +139,17 @@ const Interview: React.FC<InterviewProps> = ({ questions, onComplete, onBack, is
                 <div className="flex items-center justify-between mt-8">
                     <button 
                         onClick={handlePrev}
-                        className="flex items-center gap-2 px-6 py-3 text-slate-600 hover:bg-slate-50 rounded-xl transition-colors font-medium"
+                        className="flex items-center gap-2 px-6 py-3 text-slate-400 hover:bg-slate-800 rounded-xl transition-colors font-medium"
                     >
                         <ArrowLeft className="w-5 h-5" />
                         Back
                     </button>
 
                     <div className="flex gap-2">
-                        {/* Only show Skip button if question is NOT required AND it's not the last step */}
                         {!currentQuestion.required && currentStep !== questions.length - 1 && (
                             <button 
                                 onClick={() => setCurrentStep(prev => Math.min(prev + 1, questions.length - 1))}
-                                className="px-4 py-3 text-slate-400 hover:text-primary transition-colors text-sm font-medium"
+                                className="px-4 py-3 text-slate-500 hover:text-primary transition-colors text-sm font-medium"
                             >
                                 Skip
                             </button>
@@ -152,7 +161,7 @@ const Interview: React.FC<InterviewProps> = ({ questions, onComplete, onBack, is
                             className={`
                                 flex items-center gap-2 px-8 py-3 rounded-xl font-semibold transition-all transform active:scale-95
                                 ${!canProceed 
-                                    ? 'bg-slate-100 text-slate-400 cursor-not-allowed' 
+                                    ? 'bg-slate-800 text-slate-500 cursor-not-allowed' 
                                     : 'bg-primary text-white shadow-lg shadow-primary/30 hover:bg-primary/90 hover:-translate-y-0.5'}
                             `}
                         >
@@ -173,8 +182,8 @@ const Interview: React.FC<InterviewProps> = ({ questions, onComplete, onBack, is
                         title={q.required ? "Required" : "Optional"}
                         className={`
                             w-2 h-2 rounded-full transition-all duration-300
-                            ${idx === currentStep ? 'w-8 bg-primary' : idx < currentStep ? 'bg-primary/40' : 'bg-slate-200'}
-                            ${q.required && idx > currentStep ? 'bg-red-100' : ''}
+                            ${idx === currentStep ? 'w-8 bg-primary' : idx < currentStep ? 'bg-primary/40' : 'bg-slate-700'}
+                            ${q.required && idx > currentStep ? 'bg-red-900/50' : ''}
                         `}
                     />
                 ))}

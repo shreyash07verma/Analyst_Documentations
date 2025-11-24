@@ -56,6 +56,14 @@ export interface Project {
     createdAt: Date;
 }
 
+export interface UserProfile {
+    uid: string;
+    email: string;
+    displayName: string;
+    position: string;
+    createdAt: Date;
+}
+
 export type AppView = 
     | 'PROJECTS_LIST' 
     | 'PROJECT_DETAILS' 

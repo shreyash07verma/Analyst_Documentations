@@ -1,14 +1,17 @@
-
 import React from 'react';
-import { FolderKanban, User } from 'lucide-react';
+import { FolderKanban, User, LogOut, Settings } from 'lucide-react';
+import { UserProfile } from '../types';
 
 interface LayoutProps {
     children: React.ReactNode;
     currentView: string;
     onNavigate: (view: 'PROJECTS_LIST') => void;
+    userProfile: UserProfile | null;
+    onSignOut: () => void;
+    onOpenProfile: () => void;
 }
 
-const Layout: React.FC<LayoutProps> = ({ children, currentView, onNavigate }) => {
+const Layout: React.FC<LayoutProps> = ({ children, currentView, onNavigate, userProfile, onSignOut, onOpenProfile }) => {
     return (
         <div className="min-h-screen flex bg-[#0f172a] text-slate-50 font-sans">
             {/* Sidebar */}
@@ -33,16 +36,31 @@ const Layout: React.FC<LayoutProps> = ({ children, currentView, onNavigate }) =>
                     </button>
                 </nav>
 
-                <div className="p-4 border-t border-slate-800">
-                    <div className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-slate-800 cursor-pointer transition-colors">
-                        <div className="w-8 h-8 rounded-full bg-orange-200 text-orange-800 flex items-center justify-center">
-                            <User className="w-5 h-5" />
+                <div className="p-4 border-t border-slate-800 space-y-2">
+                    <div 
+                        onClick={onOpenProfile}
+                        className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-slate-800 cursor-pointer transition-colors group relative"
+                    >
+                        <div className="w-8 h-8 rounded-full bg-orange-200 text-orange-800 flex items-center justify-center shrink-0 font-bold text-xs">
+                            {userProfile?.displayName?.charAt(0).toUpperCase() || <User className="w-4 h-4" />}
                         </div>
                         <div className="flex-1 overflow-hidden">
-                            <p className="text-sm font-medium text-white truncate">Shreyash Verma</p>
-                            <p className="text-xs text-slate-500 truncate">Senior Business Analyst</p>
+                            <p className="text-sm font-medium text-white truncate group-hover:text-primary transition-colors">
+                                {userProfile?.displayName || 'Loading...'}
+                            </p>
+                            <p className="text-xs text-slate-500 truncate">
+                                {userProfile?.position || 'Business Analyst'}
+                            </p>
                         </div>
+                        <Settings className="w-3 h-3 text-slate-600 absolute right-4 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity" />
                     </div>
+                    <button 
+                        onClick={onSignOut}
+                        className="w-full flex items-center gap-3 px-4 py-2 text-slate-400 hover:bg-red-900/10 hover:text-red-400 rounded-lg transition-colors text-sm"
+                    >
+                        <LogOut className="w-4 h-4" />
+                        Sign Out
+                    </button>
                 </div>
             </aside>
 

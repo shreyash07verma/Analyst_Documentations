@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import Layout from './components/Layout';
 import ProjectsList from './components/ProjectsList';
@@ -7,24 +6,37 @@ import ProjectDetails from './components/ProjectDetails';
 import Dashboard from './components/Dashboard';
 import Interview from './components/Interview';
 import DocumentPreview from './components/DocumentPreview';
+import Auth from './components/Auth';
+import UserProfileModal from './components/UserProfileModal';
 import { generateQuestionsForDoc, generateDocumentContent } from './services/gemini';
 import { initDB, getAllProjects, saveProject } from './services/db';
-import { AppView, Template, Question, Answer, GeneratedDocument, Project, DocType, DocumentArtifact, ProjectFile } from './types';
+import { auth } from './services/firebase';
+import { syncUserToFirestore, updateUserProfile, deleteUserAccount } from './services/userService';
+import { onAuthStateChanged, signOut, User } from 'firebase/auth';
+import { AppView, Template, Question, Answer, GeneratedDocument, Project, DocType, DocumentArtifact, ProjectFile, UserProfile } from './types';
 import { Loader2 } from 'lucide-react';
 
 const App: React.FC = () => {
+    // Auth State
+    const [user, setUser] = useState<User | null>(null);
+    const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+    const [authLoading, setAuthLoading] = useState(true);
+    
+    // UI State
+    const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+
     // App State
     const [view, setView] = useState<AppView>('PROJECTS_LIST');
     const [projects, setProjects] = useState<Project[]>([]);
     const [activeProject, setActiveProject] = useState<Project | null>(null);
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
-    const [isLoading, setIsLoading] = useState(true);
+    const [isAppLoading, setIsAppLoading] = useState(true);
 
     // Document Generation State
     const [selectedTemplate, setSelectedTemplate] = useState<Template | null>(null);
     const [questions, setQuestions] = useState<Question[]>([]);
     const [answers, setAnswers] = useState<Answer[]>([]);
-    const [lastUsedAnswers, setLastUsedAnswers] = useState<Answer[]>([]); // Cache for optimization
+    const [lastUsedAnswers, setLastUsedAnswers] = useState<Answer[]>([]); 
     const [generatedDoc, setGeneratedDoc] = useState<GeneratedDocument | null>(null);
     
     // Edit Mode State
@@ -33,22 +45,76 @@ const App: React.FC = () => {
     // --- Initialization ---
     
     useEffect(() => {
-        const initializeApp = async () => {
-            try {
-                await initDB();
-                const loadedProjects = await getAllProjects();
-                setProjects(loadedProjects);
-            } catch (error) {
-                console.error("Failed to initialize database:", error);
-                // If DB fails, we might still want to let the UI load empty or show error
-            } finally {
-                setIsLoading(false);
+        const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+            if (currentUser && !currentUser.emailVerified) {
+                // Force sign out if email not verified
+                signOut(auth).catch((err) => console.error("Force signout error", err));
+                setUser(null);
+                setUserProfile(null);
+            } else if (currentUser) {
+                setUser(currentUser);
+                // Sync/Fetch Profile from Firestore
+                try {
+                    const profile = await syncUserToFirestore(currentUser);
+                    setUserProfile(profile);
+                } catch (err) {
+                    console.error("Profile sync error:", err);
+                }
+            } else {
+                setUser(null);
+                setUserProfile(null);
             }
-        };
-        initializeApp();
+            setAuthLoading(false);
+        });
+        return () => unsubscribe();
     }, []);
 
+    useEffect(() => {
+        const initializeApp = async () => {
+            if (user) {
+                try {
+                    await initDB();
+                    const loadedProjects = await getAllProjects();
+                    setProjects(loadedProjects);
+                } catch (error) {
+                    console.error("Failed to initialize database:", error);
+                } finally {
+                    setIsAppLoading(false);
+                }
+            }
+        };
+        
+        if (!authLoading && user) {
+            initializeApp();
+        }
+    }, [user, authLoading]);
+
+    // --- Profile Handlers ---
+
+    const handleUpdateProfile = async (data: Partial<UserProfile>) => {
+        if (!user || !userProfile) return;
+        await updateUserProfile(user.uid, data);
+        setUserProfile(prev => prev ? { ...prev, ...data } : null);
+    };
+
+    const handleDeleteAccount = async () => {
+        if (!user) return;
+        await deleteUserAccount(user);
+        setUser(null);
+        setUserProfile(null);
+    };
+
     // --- Navigation Handlers ---
+
+    const handleSignOut = async () => {
+        try {
+            await signOut(auth);
+            setUser(null);
+            setUserProfile(null);
+        } catch (error) {
+            console.error("Error signing out:", error);
+        }
+    };
 
     const handleCreateProject = async (name: string, description: string, files: ProjectFile[], templateType?: DocType) => {
         const newProject: Project = {
@@ -61,9 +127,7 @@ const App: React.FC = () => {
         };
         
         try {
-            // Save to DB
             await saveProject(newProject);
-
             setProjects(prev => [newProject, ...prev]);
             setActiveProject(newProject);
             setIsCreateModalOpen(false);
@@ -82,7 +146,7 @@ const App: React.FC = () => {
             }
         } catch (error) {
             console.error("Failed to save project:", error);
-            alert("Failed to save project to local storage. Please check your browser settings.");
+            alert("Failed to save project.");
         }
     };
 
@@ -93,10 +157,7 @@ const App: React.FC = () => {
     };
 
     const handleOpenArtifact = async (artifact: DocumentArtifact) => {
-        // Set edit context
         setEditingArtifactId(artifact.id);
-        
-        // Reconstruct template
         const templateMock: Template = {
             id: artifact.type,
             name: artifact.type,
@@ -105,39 +166,26 @@ const App: React.FC = () => {
             type: artifact.type
         };
         setSelectedTemplate(templateMock);
-
-        // Load existing data
         setAnswers(artifact.answers);
-        setLastUsedAnswers(artifact.answers); // Initialize cache with current saved answers
-        
+        setLastUsedAnswers(artifact.answers);
         setGeneratedDoc({
             title: artifact.title,
             content: artifact.content
         });
-        
-        // We also need to load the questions if the user wants to edit responses
-        // Fetch questions in background or wait? Let's wait to ensure consistency
         const questionsLoaded = await generateQuestionsForDoc(artifact.type);
         setQuestions(questionsLoaded);
-
-        // Navigate to preview directly
         setView('PREVIEW');
     };
 
     const handleEditResponses = () => {
-        // User wants to modify answers for the current document
-        // State is already loaded (questions, answers, template)
         setView('INTERVIEW');
     };
 
     const handleSelectTemplate = async (template: Template) => {
-        // New document flow
         resetDocGenState();
         setSelectedTemplate(template);
         setView('GENERATING_QUESTIONS');
-
         const generatedQuestions = await generateQuestionsForDoc(template.type);
-        
         setQuestions(generatedQuestions);
         setView('INTERVIEW');
     };
@@ -145,10 +193,7 @@ const App: React.FC = () => {
     const handleInterviewComplete = async (collectedAnswers: Answer[]) => {
         setAnswers(collectedAnswers);
 
-        // Optimization: Check if answers have changed since last generation
-        // Only skip if we actually have a generated doc to show
         if (generatedDoc && lastUsedAnswers.length > 0 && JSON.stringify(collectedAnswers) === JSON.stringify(lastUsedAnswers)) {
-            console.log("Answers unchanged, skipping regeneration.");
             setView('PREVIEW');
             return;
         }
@@ -157,7 +202,6 @@ const App: React.FC = () => {
         
         if (!selectedTemplate) return;
 
-        // Use active project for context
         const projectContext = activeProject 
             ? { 
                 name: activeProject.name, 
@@ -169,10 +213,7 @@ const App: React.FC = () => {
         const docName = selectedTemplate.name;
 
         try {
-            setGeneratedDoc({
-                title: docName,
-                content: "" 
-            });
+            setGeneratedDoc({ title: docName, content: "" });
 
             await generateDocumentContent(
                 selectedTemplate.type,
@@ -186,14 +227,12 @@ const App: React.FC = () => {
                 }
             );
             
-            // Update the cache with the answers used for this successful generation
             setLastUsedAnswers(collectedAnswers);
-            
             setView('PREVIEW');
         } catch (error) {
             console.error("Failed to generate doc", error);
             setView('INTERVIEW');
-            alert("Something went wrong generating the document. Please try again.");
+            alert("Error generating document. Please try again.");
         }
     };
 
@@ -203,7 +242,6 @@ const App: React.FC = () => {
         let updatedProject = { ...activeProject };
 
         if (editingArtifactId) {
-            // Update existing artifact
             updatedProject.documents = updatedProject.documents.map(doc => {
                 if (doc.id === editingArtifactId) {
                     return {
@@ -217,7 +255,6 @@ const App: React.FC = () => {
                 return doc;
             });
         } else {
-            // Create new artifact
             const newArtifact: DocumentArtifact = {
                 id: crypto.randomUUID(),
                 title: generatedDoc.title,
@@ -232,18 +269,14 @@ const App: React.FC = () => {
         }
 
         try {
-            // Save to DB
             await saveProject(updatedProject);
-
             setProjects(prev => prev.map(p => p.id === updatedProject.id ? updatedProject : p));
             setActiveProject(updatedProject);
-            
-            // Reset state
             resetDocGenState();
             setView('PROJECT_DETAILS');
         } catch (error) {
             console.error("Failed to save document:", error);
-            alert("Failed to save the document to the database.");
+            alert("Failed to save document.");
         }
     };
 
@@ -256,9 +289,21 @@ const App: React.FC = () => {
         setEditingArtifactId(null);
     };
 
-    // --- Render Logic ---
+    // --- Render ---
 
-    if (isLoading) {
+    if (authLoading) {
+        return (
+            <div className="flex h-screen bg-[#0f172a] items-center justify-center">
+                <Loader2 className="w-10 h-10 text-primary animate-spin" />
+            </div>
+        );
+    }
+
+    if (!user) {
+        return <Auth />;
+    }
+
+    if (isAppLoading) {
         return (
             <div className="flex h-screen bg-[#0f172a] items-center justify-center">
                 <div className="text-center">
@@ -270,11 +315,25 @@ const App: React.FC = () => {
     }
 
     return (
-        <Layout currentView={view} onNavigate={(v) => setView(v)}>
+        <Layout 
+            currentView={view} 
+            onNavigate={(v) => setView(v)} 
+            userProfile={userProfile} 
+            onSignOut={handleSignOut}
+            onOpenProfile={() => setIsProfileModalOpen(true)}
+        >
             <CreateProjectModal 
                 isOpen={isCreateModalOpen}
                 onClose={() => setIsCreateModalOpen(false)}
                 onCreate={handleCreateProject}
+            />
+
+            <UserProfileModal 
+                isOpen={isProfileModalOpen}
+                onClose={() => setIsProfileModalOpen(false)}
+                profile={userProfile}
+                onUpdate={handleUpdateProfile}
+                onDelete={handleDeleteAccount}
             />
 
             {view === 'PROJECTS_LIST' && (
@@ -305,7 +364,7 @@ const App: React.FC = () => {
                 <div className="flex flex-col items-center justify-center h-full flex-grow">
                     <div className="flex flex-col items-center gap-4 animate-in fade-in zoom-in duration-300">
                         <Loader2 className="w-12 h-12 text-primary animate-spin" />
-                        <p className="text-xl font-medium text-slate-600">Analysing requirements and formulating questions...</p>
+                        <p className="text-xl font-medium text-slate-600">Analysing requirements...</p>
                     </div>
                 </div>
             )}
@@ -313,10 +372,11 @@ const App: React.FC = () => {
             {(view === 'INTERVIEW' || view === 'GENERATING_DOC') && (
                 <Interview 
                     questions={questions}
-                    initialAnswers={answers} // Pass existing answers if editing
+                    initialAnswers={answers}
                     onComplete={handleInterviewComplete}
                     onBack={() => editingArtifactId ? setView('PREVIEW') : setView('TEMPLATE_SELECT')}
                     isGenerating={view === 'GENERATING_DOC'}
+                    projectContext={activeProject ? { name: activeProject.name, description: activeProject.description } : undefined}
                 />
             )}
 
@@ -328,7 +388,7 @@ const App: React.FC = () => {
                     onSave={handleSaveDocument}
                     onEditResponses={handleEditResponses}
                     version={editingArtifactId ? activeProject?.documents.find(d => d.id === editingArtifactId)?.version : undefined}
-                    lastUpdated={editingArtifactId ? undefined : undefined} // New unsaved docs don't have lastUpdated yet
+                    lastUpdated={editingArtifactId ? undefined : undefined} 
                 />
             )}
         </Layout>

@@ -1,13 +1,22 @@
 
 import React, { useState, useRef } from 'react';
 import { DocType, ProjectFile } from '../types';
-import { X, ChevronDown, UploadCloud, File, Trash2, Loader2 } from 'lucide-react';
+import { X, ChevronDown, UploadCloud, File, Trash2, Loader2, AlertCircle } from 'lucide-react';
+import { zlibSync } from 'fflate';
 
 interface CreateProjectModalProps {
     isOpen: boolean;
     onClose: () => void;
     onCreate: (name: string, description: string, files: ProjectFile[], templateType?: DocType) => void;
 }
+
+// Firestore document limit is ~1MB.
+// We set a safe limit for the COMPRESSED payload per file to ensure multiple files fit.
+// Assuming user might upload 2-3 files, keeping individual file limit around 900KB (base64) is risky if there are many.
+// But as per request "compress instead", we use compression to fit more.
+// Let's set a check on the *compressed* binary size. 
+// Base64 expansion is 4/3. So 1MB Base64 = 750KB binary.
+const MAX_COMPRESSED_BINARY_SIZE = 700 * 1024; // 700KB binary limit per compressed file
 
 const CreateProjectModal: React.FC<CreateProjectModalProps> = ({ isOpen, onClose, onCreate }) => {
     const [name, setName] = useState('');
@@ -24,39 +33,75 @@ const CreateProjectModal: React.FC<CreateProjectModalProps> = ({ isOpen, onClose
         if (e.target.files && e.target.files.length > 0) {
             setIsProcessing(true);
             const newFiles: ProjectFile[] = [];
+            let errorMsg = "";
             
-            // Process files to Base64
             for (let i = 0; i < e.target.files.length; i++) {
                 const file = e.target.files[i];
                 try {
-                    const base64 = await readFileAsBase64(file);
-                    newFiles.push({
-                        name: file.name,
-                        type: file.type,
-                        size: file.size,
-                        base64: base64
-                    });
+                    const processed = await processFile(file);
+                    
+                    // processed.base64 is the Base64 string of the compressed data
+                    // Calculate estimated size contribution
+                    if (processed.base64.length > (MAX_COMPRESSED_BINARY_SIZE * 1.34)) {
+                         errorMsg += `File "${file.name}" is too large even after compression (Compressed > 700KB).\n`;
+                         continue;
+                    }
+
+                    newFiles.push(processed);
                 } catch (err) {
                     console.error("Error processing file", file.name, err);
+                    errorMsg += `Failed to process "${file.name}".\n`;
                 }
+            }
+
+            if (errorMsg) {
+                alert(errorMsg);
             }
 
             setFiles(prev => [...prev, ...newFiles]);
             setIsProcessing(false);
+            
+            if (fileInputRef.current) fileInputRef.current.value = '';
         }
     };
 
-    const readFileAsBase64 = (file: File): Promise<string> => {
+    const processFile = (file: File): Promise<ProjectFile> => {
         return new Promise((resolve, reject) => {
             const reader = new FileReader();
-            reader.onload = () => {
-                const result = reader.result as string;
-                // Remove Data URL prefix (e.g., "data:application/pdf;base64,")
-                const base64 = result.split(',')[1];
-                resolve(base64);
+            reader.onload = (e) => {
+                try {
+                    const buffer = e.target?.result as ArrayBuffer;
+                    const uint8 = new Uint8Array(buffer);
+                    
+                    // Compress using zlib (level 9 for max compression)
+                    const compressed = zlibSync(uint8, { level: 9 });
+                    
+                    // Convert compressed Uint8Array to Base64
+                    // Note: Using loop for safety with large arrays, though slightly slower than spread
+                    let binary = '';
+                    const len = compressed.byteLength;
+                    const chunkSize = 8192;
+                    
+                    for (let i = 0; i < len; i += chunkSize) {
+                        const chunk = compressed.subarray(i, Math.min(i + chunkSize, len));
+                        binary += String.fromCharCode.apply(null, chunk as unknown as number[]);
+                    }
+                    
+                    const base64 = window.btoa(binary);
+                    
+                    resolve({
+                        name: file.name,
+                        type: file.type,
+                        size: file.size, // Store original size for display
+                        base64: base64,
+                        isCompressed: true
+                    });
+                } catch (err) {
+                    reject(err);
+                }
             };
             reader.onerror = reject;
-            reader.readAsDataURL(file);
+            reader.readAsArrayBuffer(file);
         });
     };
 
@@ -67,6 +112,7 @@ const CreateProjectModal: React.FC<CreateProjectModalProps> = ({ isOpen, onClose
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         if (!name.trim()) return;
+        if (files.length === 0) return; 
         
         const template = selectedTemplate === 'blank' ? undefined : selectedTemplate as DocType;
         onCreate(name, description, files, template);
@@ -116,15 +162,23 @@ const CreateProjectModal: React.FC<CreateProjectModalProps> = ({ isOpen, onClose
                         </div>
 
                         <div>
-                            <label className="block text-sm font-medium text-slate-200 mb-2">Reference Documents (Optional)</label>
-                            <p className="text-xs text-slate-500 mb-3">Upload existing BRDs, architecture diagrams, or meeting notes. The AI will use these to improve accuracy.</p>
+                            <label className="block text-sm font-medium text-slate-200 mb-2">Reference Documents <span className="text-red-500">*</span></label>
+                            <p className="text-xs text-slate-500 mb-3">
+                                Upload text-based documents (PDF, DOCX). Files are compressed automatically.
+                                <br/>
+                                <span className="text-amber-500">Max compressed size per file: ~700KB.</span>
+                            </p>
                             
                             <div 
                                 onClick={() => fileInputRef.current?.click()}
-                                className="border-2 border-dashed border-slate-700 rounded-lg p-6 flex flex-col items-center justify-center cursor-pointer hover:bg-slate-800/50 hover:border-primary/50 transition-all group"
+                                className={`border-2 border-dashed rounded-lg p-6 flex flex-col items-center justify-center cursor-pointer transition-all group
+                                    ${files.length === 0 ? 'border-amber-700/50 bg-amber-900/10' : 'border-slate-700 hover:bg-slate-800/50 hover:border-primary/50'}
+                                `}
                             >
-                                <UploadCloud className="w-8 h-8 text-slate-500 group-hover:text-primary mb-2 transition-colors" />
-                                <span className="text-sm text-slate-400 font-medium">Click to upload files (PDF, DOCX, TXT)</span>
+                                <UploadCloud className={`w-8 h-8 mb-2 transition-colors ${files.length === 0 ? 'text-amber-500' : 'text-slate-500 group-hover:text-primary'}`} />
+                                <span className={`text-sm font-medium ${files.length === 0 ? 'text-amber-500' : 'text-slate-400'}`}>
+                                    {files.length === 0 ? 'Required: Click to upload a file' : 'Click to upload more files'}
+                                </span>
                             </div>
                             <input 
                                 type="file" 
@@ -146,7 +200,12 @@ const CreateProjectModal: React.FC<CreateProjectModalProps> = ({ isOpen, onClose
                                                 </div>
                                                 <div className="min-w-0">
                                                     <p className="text-sm text-slate-200 truncate font-medium">{file.name}</p>
-                                                    <p className="text-xs text-slate-500">{(file.size / 1024).toFixed(1)} KB</p>
+                                                    <p className="text-xs text-slate-500 flex items-center gap-1">
+                                                        <span>Orig: {(file.size / 1024).toFixed(1)} KB</span>
+                                                        {file.isCompressed && (
+                                                            <span className="text-emerald-400">• Compressed</span>
+                                                        )}
+                                                    </p>
                                                 </div>
                                             </div>
                                             <button 
@@ -160,11 +219,18 @@ const CreateProjectModal: React.FC<CreateProjectModalProps> = ({ isOpen, onClose
                                     ))}
                                 </div>
                             )}
+
+                            {files.length === 0 && (
+                                <div className="flex items-center gap-2 mt-2 text-amber-500 text-xs font-medium">
+                                    <AlertCircle className="w-3 h-3" />
+                                    At least 1 reference file is required.
+                                </div>
+                            )}
                             
                             {isProcessing && (
                                 <div className="flex items-center gap-2 text-sm text-primary mt-2">
                                     <Loader2 className="w-4 h-4 animate-spin" />
-                                    Processing files...
+                                    Compressing and processing files...
                                 </div>
                             )}
                         </div>
@@ -198,8 +264,8 @@ const CreateProjectModal: React.FC<CreateProjectModalProps> = ({ isOpen, onClose
                             </button>
                             <button
                                 type="submit"
-                                disabled={!name.trim() || isProcessing}
-                                className="bg-primary hover:bg-blue-600 disabled:bg-slate-800 disabled:text-slate-500 text-white px-8 py-3 rounded-lg font-semibold transition-all shadow-lg shadow-primary/25"
+                                disabled={!name.trim() || files.length === 0 || isProcessing}
+                                className="bg-primary hover:bg-blue-600 disabled:bg-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed text-white px-8 py-3 rounded-lg font-semibold transition-all shadow-lg shadow-primary/25"
                             >
                                 Create Project
                             </button>

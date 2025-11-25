@@ -1,7 +1,8 @@
 
 import React, { useState } from 'react';
 import { Question, Answer } from '../types';
-import { ArrowRight, ArrowLeft, CheckCircle2, Loader2, AlertCircle } from 'lucide-react';
+import { ArrowRight, ArrowLeft, CheckCircle2, Loader2, AlertCircle, Sparkles } from 'lucide-react';
+import { suggestAnswer } from '../services/gemini';
 
 interface InterviewProps {
     questions: Question[];
@@ -9,9 +10,21 @@ interface InterviewProps {
     onComplete: (answers: Answer[]) => void;
     onBack: () => void;
     isGenerating: boolean;
+    loadingTitle?: string;
+    loadingMessage?: string;
+    projectContext?: { name: string; description: string };
 }
 
-const Interview: React.FC<InterviewProps> = ({ questions, initialAnswers, onComplete, onBack, isGenerating }) => {
+const Interview: React.FC<InterviewProps> = ({ 
+    questions, 
+    initialAnswers, 
+    onComplete, 
+    onBack, 
+    isGenerating, 
+    loadingTitle = "Analysing & Drafting",
+    loadingMessage = "Consulting external sources, verifying data, and synthesizing your document...",
+    projectContext 
+}) => {
     // Initialize answers state from initialAnswers prop if available
     const [answers, setAnswers] = useState<Record<number, string>>(() => {
         if (!initialAnswers) return {};
@@ -23,9 +36,48 @@ const Interview: React.FC<InterviewProps> = ({ questions, initialAnswers, onComp
     });
     
     const [currentStep, setCurrentStep] = useState(0);
+    const [isSuggesting, setIsSuggesting] = useState(false);
+
+    // GUARD CLAUSE: If questions are missing or empty, prevent crash
+    if (!questions || questions.length === 0) {
+        if (isGenerating) {
+             return (
+                <div className="flex flex-col items-center justify-center h-[60vh] animate-in fade-in duration-500">
+                    <div className="bg-slate-800 p-8 rounded-3xl shadow-xl border border-slate-700 text-center max-w-md w-full">
+                        <div className="relative w-20 h-20 mx-auto mb-6">
+                            <div className="absolute inset-0 rounded-full border-4 border-slate-700"></div>
+                            <div className="absolute inset-0 rounded-full border-4 border-primary border-t-transparent animate-spin"></div>
+                            <Loader2 className="absolute inset-0 m-auto text-primary w-8 h-8 animate-pulse" />
+                        </div>
+                        <h2 className="text-2xl font-bold text-white mb-2">{loadingTitle}</h2>
+                        <p className="text-slate-400">{loadingMessage}</p>
+                    </div>
+                </div>
+            );
+        }
+        return (
+            <div className="flex flex-col items-center justify-center h-[50vh] text-center px-4">
+                <AlertCircle className="w-12 h-12 text-red-500 mb-4" />
+                <h3 className="text-xl font-bold text-white mb-2">No Questions Found</h3>
+                <p className="text-slate-400 mb-6">Unable to load interview questions for this template.</p>
+                <button 
+                    onClick={onBack}
+                    className="px-6 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-lg transition-colors"
+                >
+                    Go Back
+                </button>
+            </div>
+        );
+    }
 
     const progress = Math.round(((Object.keys(answers).length) / questions.length) * 100);
     const currentQuestion = questions[currentStep];
+
+    // GUARD CLAUSE: If index is out of bounds
+    if (!currentQuestion) {
+        return <div className="text-white text-center p-10">Error: Question index out of bounds.</div>;
+    }
+
     const currentAnswerText = answers[currentQuestion.id] || '';
     const isCurrentAnswered = currentAnswerText.trim().length > 0;
     
@@ -36,6 +88,19 @@ const Interview: React.FC<InterviewProps> = ({ questions, initialAnswers, onComp
             ...prev,
             [currentQuestion.id]: text
         }));
+    };
+
+    const handleSuggest = async () => {
+        if (!projectContext) return;
+        setIsSuggesting(true);
+        try {
+            const suggestion = await suggestAnswer(currentQuestion.text, projectContext);
+            handleAnswerChange(suggestion);
+        } catch (error) {
+            console.error("Failed to suggest answer", error);
+        } finally {
+            setIsSuggesting(false);
+        }
     };
 
     const handleNext = () => {
@@ -74,8 +139,8 @@ const Interview: React.FC<InterviewProps> = ({ questions, initialAnswers, onComp
                         <div className="absolute inset-0 rounded-full border-4 border-primary border-t-transparent animate-spin"></div>
                         <Loader2 className="absolute inset-0 m-auto text-primary w-8 h-8 animate-pulse" />
                     </div>
-                    <h2 className="text-2xl font-bold text-white mb-2">Analysing & Drafting</h2>
-                    <p className="text-slate-400">Consulting external sources, verifying data, and synthesizing your document...</p>
+                    <h2 className="text-2xl font-bold text-white mb-2">{loadingTitle}</h2>
+                    <p className="text-slate-400">{loadingMessage}</p>
                 </div>
             </div>
         );
@@ -118,16 +183,34 @@ const Interview: React.FC<InterviewProps> = ({ questions, initialAnswers, onComp
                     )}
                 </div>
 
-                <textarea
-                    className={`
-                        flex-grow w-full p-4 bg-[#0f172a] border rounded-xl focus:ring-2 focus:ring-primary/40 transition-all resize-none text-slate-200 placeholder:text-slate-600 text-lg
-                        ${currentQuestion.required && !isCurrentAnswered ? 'border-slate-700 focus:border-primary' : 'border-slate-700 focus:border-primary'}
-                    `}
-                    placeholder={currentQuestion.placeholder || "Type your detailed answer here..."}
-                    value={answers[currentQuestion.id] || ''}
-                    onChange={(e) => handleAnswerChange(e.target.value)}
-                    autoFocus
-                />
+                <div className="relative flex-grow">
+                    <textarea
+                        className={`
+                            w-full h-full p-4 bg-[#0f172a] border rounded-xl focus:ring-2 focus:ring-primary/40 transition-all resize-none text-slate-200 placeholder:text-slate-600 text-lg min-h-[160px]
+                            ${currentQuestion.required && !isCurrentAnswered ? 'border-slate-700 focus:border-primary' : 'border-slate-700 focus:border-primary'}
+                        `}
+                        placeholder={currentQuestion.placeholder || "Type your detailed answer here..."}
+                        value={answers[currentQuestion.id] || ''}
+                        onChange={(e) => handleAnswerChange(e.target.value)}
+                        autoFocus
+                    />
+                    
+                    {projectContext && (
+                        <button
+                            onClick={handleSuggest}
+                            disabled={isSuggesting}
+                            className="absolute bottom-4 right-4 flex items-center gap-2 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-600 rounded-lg text-xs font-medium text-slate-300 transition-colors shadow-sm z-10"
+                            title="Auto-generate an answer based on project context"
+                        >
+                            {isSuggesting ? (
+                                <Loader2 className="w-3 h-3 animate-spin text-primary" />
+                            ) : (
+                                <Sparkles className="w-3 h-3 text-amber-400" />
+                            )}
+                            Magic Wand
+                        </button>
+                    )}
+                </div>
 
                 {currentQuestion.required && !isCurrentAnswered && (
                     <div className="mt-2 flex items-center gap-2 text-amber-500 text-sm animate-pulse">

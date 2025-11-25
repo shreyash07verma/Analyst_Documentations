@@ -15,7 +15,10 @@
     "@google/genai": "^0.1.0",
     "lucide-react": "^0.344.0",
     "jspdf": "^2.5.1",
-    "react-markdown": "^9.0.1"
+    "html2canvas": "^1.4.1",
+    "react-markdown": "^9.0.1",
+    "remark-gfm": "^4.0.0",
+    "fflate": "^0.8.2"
   },
   "devDependencies": {
     "@types/react": "^18.2.64",

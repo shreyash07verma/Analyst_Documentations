@@ -1,4 +1,6 @@
 
+import type { User } from 'firebase/auth';
+
 export enum DocType {
     RFP = 'Request for Proposal (RFP)',
     BRD = 'Business Requirement Document (BRD)',
@@ -43,8 +45,9 @@ export interface DocumentArtifact {
 export interface ProjectFile {
     name: string;
     type: string;
-    base64: string; // Base64 encoded content for API transmission
-    size: number;
+    base64: string; // Base64 encoded content (compressed or raw)
+    size: number; // Original size
+    isCompressed?: boolean; // Flag to indicate if base64 is zlib compressed
 }
 
 export interface Project {

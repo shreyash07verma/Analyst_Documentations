@@ -1,9 +1,15 @@
 
 import React, { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { GeneratedDocument } from '../types';
-import { FileText, Printer, Check, Copy, ArrowLeft, Save, Edit3 } from 'lucide-react';
+import { FileText, Check, Copy, ArrowLeft, Save, Edit3, Loader2, Sparkles, MessageSquarePlus, Image as ImageIcon } from 'lucide-react';
 import ExportModal from './ExportModal';
+import FeedbackModal from './FeedbackModal';
+import ImageGenerationModal from './ImageGenerationModal';
+import { jsPDF } from 'jspdf';
+import html2canvas from 'html2canvas';
+import { refineDocument } from '../services/gemini';
 
 interface DocumentPreviewProps {
     doc: GeneratedDocument;
@@ -13,6 +19,8 @@ interface DocumentPreviewProps {
     onEditResponses: () => void;
     version?: number;
     lastUpdated?: Date;
+    isSaving: boolean;
+    onDocUpdate?: (newContent: string) => void;
 }
 
 const DocumentPreview: React.FC<DocumentPreviewProps> = ({ 
@@ -22,10 +30,15 @@ const DocumentPreview: React.FC<DocumentPreviewProps> = ({
     onSave, 
     onEditResponses,
     version,
-    lastUpdated 
+    lastUpdated,
+    isSaving,
+    onDocUpdate
 }) => {
     const [copied, setCopied] = useState(false);
     const [showExportModal, setShowExportModal] = useState(false);
+    const [showFeedbackModal, setShowFeedbackModal] = useState(false);
+    const [showImageModal, setShowImageModal] = useState(false);
+    const [isExporting, setIsExporting] = useState(false);
 
     const handleCopy = () => {
         navigator.clipboard.writeText(doc.content);
@@ -33,12 +46,39 @@ const DocumentPreview: React.FC<DocumentPreviewProps> = ({
         setTimeout(() => setCopied(false), 2000);
     };
 
-    const handlePrintPDF = () => {
-        window.print();
+    const handleExportPDF = () => {
+        const element = document.getElementById('markdown-preview');
+        if (!element) return;
+
+        setIsExporting(true);
+
+        const pdf = new jsPDF({
+            orientation: 'portrait',
+            unit: 'pt',
+            format: 'a4'
+        });
+
+        // Use .html() method which works well for layout preservation
+        pdf.html(element, {
+            callback: function (doc) {
+                const safeTitle = docType.replace(/[^a-z0-9]/gi, '_').toLowerCase();
+                doc.save(`${safeTitle}.pdf`);
+                setIsExporting(false);
+            },
+            x: 40,
+            y: 40,
+            width: 515, // A4 width (595pt) - margins (80pt)
+            windowWidth: 800, // Render width for CSS context
+            html2canvas: {
+                scale: 0.7, // Adjust scale to improve quality and fit
+                useCORS: true,
+                logging: false
+            }
+        });
     };
 
     const handleExportWord = () => {
-        const preHtml = `<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'><head><meta charset='utf-8'><title>${doc.title}</title><style>body{font-family: 'Calibri', sans-serif;}</style></head><body>`;
+        const preHtml = `<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'><head><meta charset='utf-8'><title>${doc.title}</title><style>body{font-family: 'Calibri', sans-serif;} table{border-collapse: collapse; width: 100%;} td, th{border: 1px solid #000; padding: 5px;}</style></head><body>`;
         const postHtml = "</body></html>";
         
         const previewElement = document.getElementById('markdown-preview');
@@ -70,9 +110,21 @@ const DocumentPreview: React.FC<DocumentPreviewProps> = ({
         if (format === 'word') {
             handleExportWord();
         } else {
-            handlePrintPDF();
+            handleExportPDF();
         }
         setShowExportModal(false);
+    };
+
+    const handleRefineDocument = async (section: string, feedback: string) => {
+        try {
+            const updatedContent = await refineDocument(doc.content, section, feedback);
+            if (onDocUpdate) {
+                onDocUpdate(updatedContent);
+            }
+        } catch (error) {
+            console.error("Failed to refine doc", error);
+            alert("Failed to update document. Please try again.");
+        }
     };
 
     return (
@@ -83,12 +135,25 @@ const DocumentPreview: React.FC<DocumentPreviewProps> = ({
                 onExport={handleExportAction}
             />
 
+            <FeedbackModal 
+                isOpen={showFeedbackModal}
+                onClose={() => setShowFeedbackModal(false)}
+                documentContent={doc.content}
+                onSubmit={handleRefineDocument}
+            />
+
+            <ImageGenerationModal 
+                isOpen={showImageModal}
+                onClose={() => setShowImageModal(false)}
+            />
+
             {/* Toolbar */}
             <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 gap-4 print:hidden animate-in slide-in-from-top duration-500">
                 <div className="flex items-center gap-4">
                     <button 
                         onClick={onBack}
-                        className="p-2 hover:bg-slate-800 rounded-lg text-slate-400 transition-colors"
+                        disabled={isSaving || isExporting}
+                        className="p-2 hover:bg-slate-800 rounded-lg text-slate-400 transition-colors disabled:opacity-50"
                         title="Back"
                     >
                         <ArrowLeft className="w-5 h-5" />
@@ -103,18 +168,38 @@ const DocumentPreview: React.FC<DocumentPreviewProps> = ({
                 
                 <div className="flex flex-wrap gap-2">
                     <button 
-                        onClick={onEditResponses}
-                        className="flex items-center gap-2 px-4 py-2 bg-slate-800 border border-slate-700 text-slate-300 rounded-lg hover:bg-slate-700 transition-all font-medium text-sm shadow-sm"
+                        onClick={() => setShowFeedbackModal(true)}
+                        disabled={isSaving || isExporting}
+                        className="flex items-center gap-2 px-4 py-2 bg-purple-900/20 border border-purple-500/30 text-purple-300 rounded-lg hover:bg-purple-900/40 transition-all font-medium text-sm shadow-sm disabled:opacity-50"
                     >
-                        <Edit3 className="w-4 h-4" />
-                        Edit Responses
+                        <MessageSquarePlus className="w-4 h-4" />
+                        Refine
+                    </button>
+
+                    <button 
+                        onClick={() => setShowImageModal(true)}
+                        disabled={isSaving || isExporting}
+                        className="flex items-center gap-2 px-4 py-2 bg-pink-900/20 border border-pink-500/30 text-pink-300 rounded-lg hover:bg-pink-900/40 transition-all font-medium text-sm shadow-sm disabled:opacity-50"
+                    >
+                        <ImageIcon className="w-4 h-4" />
+                        Generate Visual
                     </button>
 
                     <div className="w-px h-8 bg-slate-700 mx-1 hidden md:block"></div>
 
                     <button 
+                        onClick={onEditResponses}
+                        disabled={isSaving || isExporting}
+                        className="flex items-center gap-2 px-4 py-2 bg-slate-800 border border-slate-700 text-slate-300 rounded-lg hover:bg-slate-700 transition-all font-medium text-sm shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                        <Edit3 className="w-4 h-4" />
+                        Edit Responses
+                    </button>
+
+                    <button 
                         onClick={handleCopy}
-                        className="flex items-center gap-2 px-4 py-2 bg-slate-800 border border-slate-700 text-slate-300 rounded-lg hover:bg-slate-700 transition-all font-medium text-sm shadow-sm"
+                        disabled={isSaving || isExporting}
+                        className="flex items-center gap-2 px-4 py-2 bg-slate-800 border border-slate-700 text-slate-300 rounded-lg hover:bg-slate-700 transition-all font-medium text-sm shadow-sm disabled:opacity-50"
                     >
                         {copied ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4" />}
                         {copied ? 'Copied' : 'Copy'}
@@ -122,18 +207,20 @@ const DocumentPreview: React.FC<DocumentPreviewProps> = ({
                     
                     <button 
                         onClick={() => setShowExportModal(true)}
-                        className="flex items-center gap-2 px-4 py-2 bg-slate-800 border border-slate-700 text-slate-300 rounded-lg hover:bg-slate-700 transition-all font-medium text-sm shadow-sm"
+                        disabled={isSaving || isExporting}
+                        className="flex items-center gap-2 px-4 py-2 bg-slate-800 border border-slate-700 text-slate-300 rounded-lg hover:bg-slate-700 transition-all font-medium text-sm shadow-sm disabled:opacity-50"
                     >
-                        <FileText className="w-4 h-4" />
-                        Export
+                        {isExporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
+                        {isExporting ? 'Exporting...' : 'Export'}
                     </button>
 
                     <button 
                         onClick={onSave}
-                        className="flex items-center gap-2 px-6 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 transition-all font-medium text-sm shadow-lg shadow-primary/20 animate-pulse hover:animate-none"
+                        disabled={isSaving || isExporting}
+                        className="flex items-center gap-2 px-6 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 transition-all font-medium text-sm shadow-lg shadow-primary/20 disabled:bg-slate-700 disabled:shadow-none disabled:cursor-not-allowed min-w-[140px] justify-center"
                     >
-                        <Save className="w-4 h-4" />
-                        {version ? 'Save Changes' : 'Save to Project'}
+                        {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                        {isSaving ? 'Saving...' : (version ? 'Save Changes' : 'Save to Project')}
                     </button>
                 </div>
             </div>
@@ -141,7 +228,7 @@ const DocumentPreview: React.FC<DocumentPreviewProps> = ({
             {/* Document View */}
             <div className="bg-white shadow-2xl shadow-black/50 rounded-none md:rounded-xl min-h-[29.7cm] p-8 md:p-16 print:shadow-none print:p-0 print:w-full overflow-hidden relative">
                 <div id="markdown-preview" className="markdown-body font-serif text-lg leading-relaxed max-w-[21cm] mx-auto text-slate-900 pb-16">
-                    <ReactMarkdown>{doc.content}</ReactMarkdown>
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{doc.content}</ReactMarkdown>
                 </div>
                 
                 {/* Footer Metadata (Visible on print/export usually, but styled here for UI) */}
@@ -150,31 +237,6 @@ const DocumentPreview: React.FC<DocumentPreviewProps> = ({
                     <span>Version: {version || 1}.0 &bull; Updated: {lastUpdated ? lastUpdated.toLocaleDateString() + ' ' + lastUpdated.toLocaleTimeString() : new Date().toLocaleDateString()}</span>
                 </div>
             </div>
-            
-            <style>{`
-                @media print {
-                    body * {
-                        visibility: hidden;
-                    }
-                    .bg-white, .bg-white * {
-                        visibility: visible;
-                    }
-                    .bg-white {
-                        position: absolute;
-                        left: 0;
-                        top: 0;
-                        width: 100%;
-                        margin: 0;
-                        padding: 20px;
-                        box-shadow: none;
-                        border: none;
-                    }
-                    @page {
-                        size: auto;
-                        margin: 20mm;
-                    }
-                }
-            `}</style>
         </div>
     );
 };

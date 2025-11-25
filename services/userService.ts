@@ -1,6 +1,7 @@
-import { db, auth } from './firebase';
-import { doc, getDoc, setDoc, updateDoc, deleteDoc } from 'firebase/firestore';
-import { User, deleteUser as deleteAuthUser } from 'firebase/auth';
+
+import { db } from './firebase';
+import { doc, getDoc, setDoc, updateDoc, deleteDoc } from 'firebase/firestore/lite';
+import { User, deleteUser } from 'firebase/auth';
 import { UserProfile } from '../types';
 
 const COLLECTION_NAME = 'users';
@@ -14,7 +15,7 @@ export const syncUserToFirestore = async (user: User, displayName?: string): Pro
     const userSnap = await getDoc(userRef);
 
     if (userSnap.exists()) {
-        const data = userSnap.data();
+        const data = userSnap.data()!;
         return {
             uid: user.uid,
             email: user.email || '',
@@ -42,7 +43,7 @@ export const getUserProfile = async (uid: string): Promise<UserProfile | null> =
     const userSnap = await getDoc(userRef);
 
     if (userSnap.exists()) {
-        const data = userSnap.data();
+        const data = userSnap.data()!;
         return {
             uid: uid,
             email: data.email,
@@ -65,6 +66,5 @@ export const deleteUserAccount = async (user: User): Promise<void> => {
     await deleteDoc(doc(db, COLLECTION_NAME, uid));
     
     // 2. Delete from Auth
-    // Note: This requires recent login. If it fails, we might need to prompt for re-auth.
-    await deleteAuthUser(user);
+    await deleteUser(user);
 };

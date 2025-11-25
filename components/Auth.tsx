@@ -1,6 +1,13 @@
+
 import React, { useState } from 'react';
 import { auth } from '../services/firebase';
-import { signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile, sendEmailVerification, signOut } from 'firebase/auth';
+import { 
+    signInWithEmailAndPassword, 
+    createUserWithEmailAndPassword, 
+    updateProfile, 
+    sendEmailVerification, 
+    signOut 
+} from 'firebase/auth';
 import { syncUserToFirestore } from '../services/userService';
 import { Loader2, AlertCircle, ArrowRight, Mail } from 'lucide-react';
 
@@ -30,7 +37,7 @@ const Auth: React.FC = () => {
                 const userCredential = await signInWithEmailAndPassword(auth, cleanEmail, password);
                 const user = userCredential.user;
 
-                if (!user.emailVerified) {
+                if (user && !user.emailVerified) {
                     try {
                         await sendEmailVerification(user);
                     } catch (emailErr: any) {
@@ -60,22 +67,24 @@ const Auth: React.FC = () => {
                 const userCredential = await createUserWithEmailAndPassword(auth, cleanEmail, password);
                 const user = userCredential.user;
 
-                // Save display name to Auth Profile
-                await updateProfile(user, {
-                    displayName: name
-                });
+                if (user) {
+                    // Save display name to Auth Profile
+                    await updateProfile(user, {
+                        displayName: name
+                    });
 
-                // Create Firestore Profile immediately
-                await syncUserToFirestore(user, name);
+                    // Create Firestore Profile immediately
+                    await syncUserToFirestore(user, name);
 
-                // Send Verification Email
-                await sendEmailVerification(user);
+                    // Send Verification Email
+                    await sendEmailVerification(user);
 
-                // Sign out immediately
-                await signOut(auth);
+                    // Sign out immediately
+                    await signOut(auth);
 
-                setVerificationEmail(cleanEmail);
-                setIsVerificationSent(true);
+                    setVerificationEmail(cleanEmail);
+                    setIsVerificationSent(true);
+                }
             }
         } catch (err: any) {
             console.error("Auth error:", err);
@@ -195,7 +204,7 @@ const Auth: React.FC = () => {
                             value={email}
                             onChange={(e) => handleInputChange(setEmail, e.target.value)}
                             className="w-full bg-[#0f172a] border border-slate-700 rounded-lg px-4 py-3 text-white focus:ring-2 focus:ring-primary focus:border-transparent outline-none transition-all"
-                            placeholder="john@company.com"
+                            placeholder="Enter your Email address"
                         />
                     </div>
 

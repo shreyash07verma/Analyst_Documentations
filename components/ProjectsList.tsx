@@ -8,18 +8,17 @@ interface ProjectsListProps {
     onOpenProject: (project: Project) => void;
     onNewProject: () => void;
     onEdit: (project: Project) => void;
-    onDelete: (project: Project) => void;
+    onDelete: (project: Project) => void; // Kept for interface compatibility
     deletingProjectId: string | null;
 }
 
-const ProjectsList: React.FC<ProjectsListProps> = ({ projects, onOpenProject, onNewProject, onEdit, onDelete, deletingProjectId }) => {
+const ProjectsList: React.FC<ProjectsListProps> = ({ projects, onOpenProject, onNewProject, onEdit }) => {
     return (
         <div className="p-8 max-w-7xl mx-auto w-full animate-in fade-in duration-500">
             <div className="flex justify-between items-center mb-2">
                 <h1 className="text-3xl font-bold text-white">All Projects</h1>
                 <button 
                     onClick={onNewProject}
-                    disabled={deletingProjectId !== null}
                     className="flex items-center gap-2 bg-primary hover:bg-blue-600 disabled:bg-slate-700 disabled:text-slate-500 text-white px-5 py-2.5 rounded-lg font-medium transition-colors shadow-lg shadow-primary/20"
                 >
                     <Plus className="w-4 h-4" />
@@ -50,62 +49,57 @@ const ProjectsList: React.FC<ProjectsListProps> = ({ projects, onOpenProject, on
                         <div className="col-span-4 text-right pr-4">Actions</div>
                     </div>
                     <div className="divide-y divide-slate-800">
-                        {projects.map((project) => {
-                            const isAnyDeleting = deletingProjectId !== null;
-
-                            return (
+                        {projects.map((project) => (
+                            <div 
+                                key={project.id}
+                                className="grid grid-cols-12 gap-4 p-4 transition-colors items-center group relative hover:bg-slate-800/50"
+                            >
+                                {/* Main Clickable Content Area */}
                                 <div 
-                                    key={project.id}
-                                    className="grid grid-cols-12 gap-4 p-4 transition-colors items-center group relative hover:bg-slate-800/50"
+                                    onClick={() => onOpenProject(project)}
+                                    className="col-span-8 grid grid-cols-8 gap-4 cursor-pointer"
                                 >
-                                    {/* Main Clickable Content Area - Separated from Buttons */}
-                                    <div 
-                                        onClick={() => !isAnyDeleting && onOpenProject(project)}
-                                        className={`col-span-8 grid grid-cols-8 gap-4 cursor-pointer ${isAnyDeleting ? 'pointer-events-none' : ''}`}
-                                    >
-                                        <div className="col-span-6 pl-4">
-                                            <h3 className="font-medium text-white text-lg group-hover:text-primary transition-colors">{project.name}</h3>
-                                            {project.description && (
-                                                <p className="text-sm text-slate-500 mt-1 truncate">{project.description}</p>
-                                            )}
-                                        </div>
-                                        <div className="col-span-2 flex items-center gap-2 text-slate-300">
-                                            <FileText className="w-4 h-4 text-slate-500" />
-                                            <span>{project.documents.length}</span>
-                                        </div>
+                                    <div className="col-span-6 pl-4">
+                                        <h3 className="font-medium text-white text-lg group-hover:text-primary transition-colors">{project.name}</h3>
+                                        {project.description && (
+                                            <p className="text-sm text-slate-500 mt-1 truncate">{project.description}</p>
+                                        )}
                                     </div>
-
-                                    {/* Actions Area - Independent Event Handling */}
-                                    <div className="col-span-4 flex justify-end gap-2 pr-4 relative z-20">
-                                         <button 
-                                            type="button"
-                                            disabled={isAnyDeleting}
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                onOpenProject(project);
-                                            }}
-                                            className="text-primary hover:text-blue-400 disabled:text-slate-600 text-sm font-medium px-3 py-1.5 rounded hover:bg-blue-900/20 transition-colors flex items-center gap-1"
-                                        >
-                                            Open
-                                            <ChevronRight className="w-4 h-4" />
-                                        </button>
-                                        <div className="w-px h-6 bg-slate-700 mx-1 self-center"></div>
-                                        <button 
-                                            type="button"
-                                            disabled={isAnyDeleting}
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                onEdit(project);
-                                            }}
-                                            className="text-slate-400 hover:text-white disabled:text-slate-600 p-2 rounded hover:bg-slate-700 transition-colors"
-                                            title="Edit Project"
-                                        >
-                                            <Edit className="w-4 h-4" />
-                                        </button>
+                                    <div className="col-span-2 flex items-center gap-2 text-slate-300">
+                                        <FileText className="w-4 h-4 text-slate-500" />
+                                        <span>{project.documents.length}</span>
                                     </div>
                                 </div>
-                            );
-                        })}
+
+                                {/* Actions Area */}
+                                <div className="col-span-4 flex justify-end gap-2 pr-4 relative z-20">
+                                     <button 
+                                        type="button"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            onOpenProject(project);
+                                        }}
+                                        className="text-primary hover:text-blue-400 text-sm font-medium px-3 py-1.5 rounded hover:bg-blue-900/20 transition-colors flex items-center gap-1"
+                                    >
+                                        Open
+                                        <ChevronRight className="w-4 h-4" />
+                                    </button>
+                                    <div className="w-px h-6 bg-slate-700 mx-1 self-center"></div>
+                                    <button 
+                                        type="button"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            onEdit(project);
+                                        }}
+                                        className="text-slate-400 hover:text-white p-2 rounded hover:bg-slate-700 transition-colors flex items-center gap-2 text-sm"
+                                        title="Edit Project"
+                                    >
+                                        <Edit className="w-4 h-4" />
+                                        <span>Edit</span>
+                                    </button>
+                                </div>
+                            </div>
+                        ))}
                     </div>
                 </div>
             )}
